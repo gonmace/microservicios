@@ -21,9 +21,32 @@ app.post('/shortlink', async (req, res) => {
       follow: 10,
     });
 
-    const finalUrl = response.url;
+    let finalUrl = response.url;
+    
+    // Decodificar URL en caso de que esté codificada
+    try {
+      finalUrl = decodeURIComponent(finalUrl);
+    } catch (e) {
+      // Si falla la decodificación, usar la URL original
+    }
 
-    const match = finalUrl.match(/@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/);
+    // Intentar múltiples formatos de coordenadas de Google Maps
+    let lat, lon;
+    
+    // Formato 1: @lat,lon o @lat,lon,zoom
+    let match = finalUrl.match(/@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/);
+    if (match) {
+      lat = parseFloat(match[1]);
+      lon = parseFloat(match[2]);
+    } else {
+      // Formato 2: !3dlat...!4dlon (formato de datos embebidos, permite caracteres intermedios)
+      // Hacer la expresión más flexible con los dígitos
+      match = finalUrl.match(/!3d(-?\d+\.\d+).*?!4d(-?\d+\.\d+)/);
+      if (match) {
+        lat = parseFloat(match[1]);
+        lon = parseFloat(match[2]);
+      }
+    }
 
     if (!match) {
       return res.status(422).json({
@@ -34,8 +57,8 @@ app.post('/shortlink', async (req, res) => {
 
     res.json({
       resolved_url: finalUrl,
-      lat: parseFloat(match[1]),
-      lon: parseFloat(match[2]),
+      lat: lat,
+      lon: lon,
     });
 
   } catch (err) {

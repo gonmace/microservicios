@@ -99,8 +99,10 @@ curl -X POST https://ms.magoreal.com/shortlink \
 
 
 
+```bash
 git pull
 docker build -t magoreal/shortlink:latest .
 docker stop shortlink
 docker rm shortlink
 docker run -d --name shortlink -p 127.0.0.1:3000:3000 --restart unless-stopped magoreal/shortlink:latest
+```

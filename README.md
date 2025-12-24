@@ -11,7 +11,9 @@ docker run -d \
 sudo cp ms.magoreal.com /etc/nginx/sites-available/
 
 sudo ln -s /etc/nginx/sites-available/ms.magoreal.com /etc/nginx/sites-enabled/
+
 sudo nginx -t
+
 sudo systemctl reload nginx
 
 sudo certbot --nginx -d ms.magoreal.com

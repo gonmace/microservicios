@@ -20,6 +20,4 @@ sudo certbot --nginx -d ms.magoreal.com
 
 curl https://ms.magoreal.com/health
 
-curl -X POST https://ms.magoreal.com/shortlink \
-  -H "Content-Type: application/json" \
-  -d '{"query":"https://maps.app.goo.gl/kKWq7eRUpJPtMYJL9"}'
+curl -X POST https://ms.magoreal.com/shortlink -H "Content-Type: application/json" -d '{"query":"https://maps.app.goo.gl/kKWq7eRUpJPtMYJL9"}'

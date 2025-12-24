@@ -2,7 +2,7 @@
 
 Microservicio que resuelve URLs cortas de Google Maps y extrae las coordenadas (latitud y longitud).
 
-## Uso Local
+## Desarrollo Local (sin Docker)
 
 ### 1. Instalar dependencias
 ```bash
@@ -11,10 +11,16 @@ npm install
 
 ### 2. Iniciar el servidor
 ```bash
+# Opción 1: Usando npm
+npm start
+
+# Opción 2: Directamente con Node.js
 node index.js
 ```
 
 El servidor se ejecutará en `http://localhost:3000`
+
+**Nota:** Para desarrollo con auto-reload, puedes instalar `nodemon` globalmente y ejecutar `nodemon index.js`
 
 ## Endpoints
 
@@ -90,3 +96,11 @@ curl -X POST https://ms.magoreal.com/shortlink \
   -H "Content-Type: application/json" \
   -d '{"query":"https://maps.app.goo.gl/kKWq7eRUpJPtMYJL9"}'
 ```
+
+
+
+git pull
+docker build -t magoreal/shortlink:latest .
+docker stop shortlink
+docker rm shortlink
+docker run -d --name shortlink -p 127.0.0.1:3000:3000 --restart unless-stopped magoreal/shortlink:latest

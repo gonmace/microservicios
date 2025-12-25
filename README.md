@@ -66,6 +66,7 @@ Respuesta con error (si no se encuentran coordenadas):
 
 ## Despliegue con Docker
 
+
 ### 1. Construir la imagen
 ```bash
 docker build -t magoreal/shortlink:1.0 .

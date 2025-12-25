@@ -8,7 +8,8 @@ RUN apk add --no-cache \
     freetype-dev \
     harfbuzz \
     ca-certificates \
-    ttf-freefont
+    ttf-freefont \
+    font-noto-emoji
 
 # Configurar Puppeteer para usar Chromium instalado
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
@@ -23,7 +24,6 @@ COPY index.js .
 
 EXPOSE 3000
 
-# Usar usuario node pero con permisos necesarios
-USER node
-
+# Ejecutar como root para evitar problemas de permisos con Chromium
+# (En producción, considera usar un usuario no-root con permisos específicos)
 CMD ["node", "index.js"]

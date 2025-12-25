@@ -162,124 +162,151 @@ app.post('/shortlink', async (req, res) => {
     if (lat === undefined || lon === undefined) {
       try {
         console.log('Intentando obtener coordenadas con Puppeteer...');
-        const browser = await puppeteer.launch({
-          headless: true,
-          executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+        
+        // Configuración para Puppeteer en Docker/Alpine
+        const launchOptions = {
+          headless: 'new',
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
-            '--no-zygote',
-            '--single-process',
-            '--disable-gpu'
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding'
           ]
-        });
-        const page = await browser.newPage();
+        };
         
-        // Interceptar respuestas de red para capturar datos JSON que contengan coordenadas
-        const coordinates = await new Promise(async (resolve) => {
-          let foundCoords = null;
+        // Si está definida la variable de entorno, usar esa ruta
+        if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+          launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+        }
+        
+        const browser = await puppeteer.launch(launchOptions);
+        
+        try {
+          const page = await browser.newPage();
           
-          // Interceptar respuestas de red
-          page.on('response', async (response) => {
-            try {
-              const url = response.url();
-              // Buscar en respuestas de API de Google Maps
-              if (url.includes('maps.googleapis.com') || url.includes('googleapis.com')) {
-                const text = await response.text();
-                // Buscar coordenadas en respuestas JSON
-                const coordMatch = text.match(/\[(-?\d{1,2}\.\d{6,}),(-?\d{1,3}\.\d{6,})\]/);
-                if (coordMatch && !foundCoords) {
-                  const testLat = parseFloat(coordMatch[1]);
-                  const testLon = parseFloat(coordMatch[2]);
+          // Configurar timeout para evitar que se quede colgado
+          page.setDefaultTimeout(15000);
+          page.setDefaultNavigationTimeout(15000);
+          
+          // Interceptar respuestas de red para capturar datos JSON que contengan coordenadas
+          const coordinates = await Promise.race([
+            new Promise(async (resolve) => {
+              let foundCoords = null;
+              
+              // Interceptar respuestas de red
+              page.on('response', async (response) => {
+                try {
+                  const url = response.url();
+                  // Buscar en respuestas de API de Google Maps
+                  if (url.includes('maps.googleapis.com') || url.includes('googleapis.com')) {
+                    const text = await response.text();
+                    // Buscar coordenadas en respuestas JSON
+                    const coordMatch = text.match(/\[(-?\d{1,2}\.\d{6,}),(-?\d{1,3}\.\d{6,})\]/);
+                    if (coordMatch && !foundCoords) {
+                      const testLat = parseFloat(coordMatch[1]);
+                      const testLon = parseFloat(coordMatch[2]);
+                      if (testLat >= -90 && testLat <= 90 && testLon >= -180 && testLon <= 180 &&
+                          Math.abs(testLat) > 1 && Math.abs(testLon) > 1) {
+                        foundCoords = { lat: coordMatch[1], lon: coordMatch[2] };
+                      }
+                    }
+                  }
+                } catch (e) {
+                  // Ignorar errores al leer respuestas
+                }
+              });
+              
+              await page.goto(finalUrl, { waitUntil: 'networkidle2', timeout: 15000 });
+              
+              // Esperar a que la página cargue completamente
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              
+              // Intentar obtener coordenadas del DOM ejecutando JavaScript
+              const domCoords = await page.evaluate(() => {
+                // Buscar coordenadas en window object
+                if (window.APP_INITIALIZATION_STATE) {
+                  const state = window.APP_INITIALIZATION_STATE;
+                  const stateStr = JSON.stringify(state);
+                  const match = stateStr.match(/\[(-?\d{1,2}\.\d{6,}),(-?\d{1,3}\.\d{6,})\]/);
+                  if (match) {
+                    return { lat: match[1], lon: match[2] };
+                  }
+                }
+                
+                // Buscar en datos del mapa
+                const scripts = Array.from(document.querySelectorAll('script'));
+                for (const script of scripts) {
+                  const text = script.textContent || '';
+                  const match = text.match(/\[(-?\d{1,2}\.\d{6,}),(-?\d{1,3}\.\d{6,})\]/);
+                  if (match) {
+                    const testLat = parseFloat(match[1]);
+                    const testLon = parseFloat(match[2]);
+                    if (testLat >= -90 && testLat <= 90 && testLon >= -180 && testLon <= 180 &&
+                        Math.abs(testLat) > 1 && Math.abs(testLon) > 1) {
+                      return { lat: match[1], lon: match[2] };
+                    }
+                  }
+                }
+                return null;
+              });
+              
+              if (domCoords) {
+                foundCoords = domCoords;
+              }
+              
+              // Verificar si la URL cambió y ahora tiene coordenadas
+              const currentUrl = page.url();
+              const urlMatch = currentUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) ||
+                              currentUrl.match(/!3d(-?\d+\.\d+).*?!4d(-?\d+\.\d+)/) ||
+                              currentUrl.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+              
+              if (urlMatch && !foundCoords) {
+                foundCoords = { lat: urlMatch[1], lon: urlMatch[2] };
+                finalUrl = currentUrl;
+              }
+              
+              // Si aún no encontramos, buscar en el HTML completo
+              if (!foundCoords) {
+                const pageContent = await page.content();
+                const coordPattern = /\[(-?\d{1,2}\.\d{6,}),(-?\d{1,3}\.\d{6,})\]/g;
+                let coordMatches;
+                while ((coordMatches = coordPattern.exec(pageContent)) !== null) {
+                  const testLat = parseFloat(coordMatches[1]);
+                  const testLon = parseFloat(coordMatches[2]);
                   if (testLat >= -90 && testLat <= 90 && testLon >= -180 && testLon <= 180 &&
                       Math.abs(testLat) > 1 && Math.abs(testLon) > 1) {
-                    foundCoords = { lat: coordMatch[1], lon: coordMatch[2] };
+                    foundCoords = { lat: coordMatches[1], lon: coordMatches[2] };
+                    break;
                   }
                 }
               }
-            } catch (e) {
-              // Ignorar errores al leer respuestas
-            }
-          });
+              
+              resolve(foundCoords);
+            }),
+            // Timeout después de 20 segundos
+            new Promise((resolve) => setTimeout(() => resolve(null), 20000))
+          ]);
           
-          await page.goto(finalUrl, { waitUntil: 'networkidle2', timeout: 15000 });
-          
-          // Esperar a que la página cargue completamente
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          
-          // Intentar obtener coordenadas del DOM ejecutando JavaScript
-          const domCoords = await page.evaluate(() => {
-            // Buscar coordenadas en window object
-            if (window.APP_INITIALIZATION_STATE) {
-              const state = window.APP_INITIALIZATION_STATE;
-              const stateStr = JSON.stringify(state);
-              const match = stateStr.match(/\[(-?\d{1,2}\.\d{6,}),(-?\d{1,3}\.\d{6,})\]/);
-              if (match) {
-                return { lat: match[1], lon: match[2] };
-              }
-            }
-            
-            // Buscar en datos del mapa
-            const scripts = Array.from(document.querySelectorAll('script'));
-            for (const script of scripts) {
-              const text = script.textContent || '';
-              const match = text.match(/\[(-?\d{1,2}\.\d{6,}),(-?\d{1,3}\.\d{6,})\]/);
-              if (match) {
-                const testLat = parseFloat(match[1]);
-                const testLon = parseFloat(match[2]);
-                if (testLat >= -90 && testLat <= 90 && testLon >= -180 && testLon <= 180 &&
-                    Math.abs(testLat) > 1 && Math.abs(testLon) > 1) {
-                  return { lat: match[1], lon: match[2] };
-                }
-              }
-            }
-            return null;
-          });
-          
-          if (domCoords) {
-            foundCoords = domCoords;
+          if (coordinates && setCoords(coordinates.lat, coordinates.lon)) {
+            console.log('Coordenadas obtenidas con Puppeteer');
           }
-          
-          // Verificar si la URL cambió y ahora tiene coordenadas
-          const currentUrl = page.url();
-          const urlMatch = currentUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) ||
-                          currentUrl.match(/!3d(-?\d+\.\d+).*?!4d(-?\d+\.\d+)/) ||
-                          currentUrl.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
-          
-          if (urlMatch && !foundCoords) {
-            foundCoords = { lat: urlMatch[1], lon: urlMatch[2] };
-            finalUrl = currentUrl;
+        } finally {
+          // Asegurarse de cerrar el browser incluso si hay errores
+          try {
+            await browser.close();
+          } catch (closeError) {
+            console.error('Error cerrando browser:', closeError.message);
           }
-          
-          // Si aún no encontramos, buscar en el HTML completo
-          if (!foundCoords) {
-            const pageContent = await page.content();
-            const coordPattern = /\[(-?\d{1,2}\.\d{6,}),(-?\d{1,3}\.\d{6,})\]/g;
-            let coordMatches;
-            while ((coordMatches = coordPattern.exec(pageContent)) !== null) {
-              const testLat = parseFloat(coordMatches[1]);
-              const testLon = parseFloat(coordMatches[2]);
-              if (testLat >= -90 && testLat <= 90 && testLon >= -180 && testLon <= 180 &&
-                  Math.abs(testLat) > 1 && Math.abs(testLon) > 1) {
-                foundCoords = { lat: coordMatches[1], lon: coordMatches[2] };
-                break;
-              }
-            }
-          }
-          
-          resolve(foundCoords);
-        });
-        
-        if (coordinates && setCoords(coordinates.lat, coordinates.lon)) {
-          console.log('Coordenadas obtenidas con Puppeteer');
         }
-        
-        await browser.close();
       } catch (e) {
         console.error('Error con Puppeteer:', e.message);
+        console.error('Stack:', e.stack);
       }
     }
 
